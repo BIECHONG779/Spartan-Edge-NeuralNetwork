@@ -13,8 +13,8 @@ module top (
     input  wire clk_50m,
     input  wire btn0,
     input  wire btn1,
-    output wire ws2812_din,
-    output wire [3:0] led_status   // 把 class_id 也用 4 个普通 LED 二进制显示, 便于调试
+    output wire ws2812_din,        // SK6805 链 DIN (板上 2 颗 RGB LED, 兼容 WS2812 协议)
+    output wire [1:0] led_status   // 板载 2 颗普通 LED (FPGA_LED1/2), 二进制显示 class_id
 );
     // ---------- 上电复位 ----------
     reg [23:0] por_cnt = 0;
@@ -35,11 +35,14 @@ module top (
     );
 
     // ---------- 去抖 ----------
+    // 板上 USER1/2 按键 "按下=低", RTL 内部约定 "按下=高", 这里反相一次.
+    wire btn0_act = ~btn0;
+    wire btn1_act = ~btn1;
     wire btn0_db, btn1_db;
     debounce u_db0 (.clk(clk_50m), .rst_n(rst_n), .tick(tick),
-                    .btn_raw(btn0), .btn_stable(btn0_db));
+                    .btn_raw(btn0_act), .btn_stable(btn0_db));
     debounce u_db1 (.clk(clk_50m), .rst_n(rst_n), .tick(tick),
-                    .btn_raw(btn1), .btn_stable(btn1_db));
+                    .btn_raw(btn1_act), .btn_stable(btn1_db));
 
     // ---------- 采样 ----------
     wire [127:0] vec;
@@ -61,49 +64,55 @@ module top (
         .class_id(class_id)
     );
 
-    // ---------- 类别 → LED 颜色 ----------
-    // 仅点亮 LED[class_id], 颜色按类别区分; 其它 LED 熄灭.
-    // 颜色 (G,R,B) 8-bit 各通道
-    function [23:0] color_of;
+    // ---------- 类别 → 2 颗 RGB LED 颜色 ----------
+    // 板上只有 2 颗 SK6805 RGB LED, 用 (LED1, LED2) 颜色组合区分 4 类.
+    // 颜色字段 24 bit = {G[7:0], R[7:0], B[7:0]} (SK6805/WS2812 协议).
+    // 选用低亮度 0x20 避免直视刺眼.
+    function [23:0] led1_color;
         input [1:0] cls;
         case (cls)
-            2'd0: color_of = {8'h20, 8'h00, 8'h00};   // 暗绿  (BTN0 短按)
-            2'd1: color_of = {8'h00, 8'h20, 8'h00};   // 暗红  (BTN1 短按)
-            2'd2: color_of = {8'h10, 8'h10, 8'h00};   // 黄    (BTN0 长按)
-            2'd3: color_of = {8'h00, 8'h00, 8'h20};   // 蓝    (BTN0 双击)
+            2'd0: led1_color = {8'h20, 8'h00, 8'h00};   // 绿 (BTN0 短按)
+            2'd1: led1_color = {8'h00, 8'h00, 8'h00};   // 灭 (BTN1 短按)
+            2'd2: led1_color = {8'h10, 8'h10, 8'h00};   // 黄 (BTN0 长按)
+            2'd3: led1_color = {8'h00, 8'h00, 8'h20};   // 蓝 (BTN0 双击)
+        endcase
+    endfunction
+    function [23:0] led2_color;
+        input [1:0] cls;
+        case (cls)
+            2'd0: led2_color = {8'h00, 8'h00, 8'h00};   // 灭
+            2'd1: led2_color = {8'h00, 8'h20, 8'h00};   // 红
+            2'd2: led2_color = {8'h10, 8'h10, 8'h00};   // 黄
+            2'd3: led2_color = {8'h00, 8'h00, 8'h20};   // 蓝
         endcase
     endfunction
 
-    reg [1:0]    last_class;
-    reg [191:0]  grb_pack;     // 8 LED * 24 bit
-    reg          ws_start;
-    wire         ws_busy;
+    reg [1:0]   last_class;
+    reg [47:0]  grb_pack;       // 2 LED * 24 bit, 第一颗 (LED1) 在高位
+    reg         ws_start;
+    wire        ws_busy;
 
-    integer i;
     always @(posedge clk_50m or negedge rst_n) begin
         if (!rst_n) begin
             last_class <= 2'd0;
-            grb_pack   <= 192'd0;
+            grb_pack   <= 48'd0;
             ws_start   <= 1'b0;
         end else begin
             ws_start <= 1'b0;
             if (infer_done) begin
                 last_class <= class_id;
-                // 默认全黑, 仅 class_id 位置点亮
-                grb_pack <= 192'd0;
-                // 第 class_id 颗 LED (LED0 在最高 24bit)
-                grb_pack[24*(8 - 1 - class_id) +: 24] <= color_of(class_id);
+                grb_pack   <= {led1_color(class_id), led2_color(class_id)};
                 if (!ws_busy) ws_start <= 1'b1;
             end
         end
     end
 
-    ws2812_driver #(.CLK_HZ(50_000_000), .N_LEDS(8)) u_ws (
+    ws2812_driver #(.CLK_HZ(50_000_000), .N_LEDS(2)) u_ws (
         .clk(clk_50m), .rst_n(rst_n),
         .start(ws_start), .grb_pack(grb_pack),
         .data_out(ws2812_din), .busy(ws_busy)
     );
 
-    assign led_status = {2'b00, last_class};
+    assign led_status = last_class;
 
 endmodule

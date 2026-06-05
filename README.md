@@ -1,7 +1,7 @@
 # Spartan Edge — 按键手势 MLP 推理
 
 在 Seeed Spartan Edge Accelerator Board (XC7S15) 上部署一个 int8 量化的极小 MLP,
-用 2 个用户按键做手势分类 (4 类), 8 颗 WS2812 LED 输出结果.
+用 2 个用户按键 (USER1/USER2) 做手势分类 (4 类), 2 颗板载 SK6805 RGB LED + 2 颗普通 LED 输出结果.
 
 ## 目录结构
 
@@ -16,13 +16,13 @@
 │   ├── debounce.v                         # 按键去抖
 │   ├── button_capture.v                   # 64 帧 × 2 bit = 128 bit 输入向量
 │   ├── mlp_inference.v                    # 串行 int8 MAC 推理引擎 (核心)
-│   ├── ws2812_driver.v                    # 8 LED 菊花链驱动
+│   ├── ws2812_driver.v                    # 2 颗 SK6805 RGB LED 菊花链驱动
 │   └── top.v                              # 顶层
 ├── sim/
 │   ├── tb_mlp.v                           # bit-true testbench
 │   └── vectors/test_vectors.txt           # 训练脚本生成
 ├── vivado/
-│   ├── constraints.xdc                    # 引脚 (TODO: 与 PDF 核对)
+│   ├── constraints.xdc                    # 引脚 (已按 PDF + Seeed 官方 XDC 核对)
 │   └── build.tcl                          # 非项目模式编译脚本
 └── CLAUDE.md
 ```
@@ -31,20 +31,20 @@
 
 | 模块 | 复杂度 |
 |---|---|
-| 输入 | BTN0 / BTN1, 50 Hz 采样, 64 帧, 共 128 bit |
+| 输入 | USER1 / USER2 物理按键 (低有效, 内部上拉, RTL 反相后采样), 50 Hz x 64 帧 = 128 bit |
 | 网络 | MLP: 128 → 16 (ReLU) → 4, int8 对称量化, 共 ~2 KB 权重 (BRAM) |
 | 推理 | 单 DSP 串行 MAC, 状态机控制, 一次推理 ~2200 cycle ≈ 44 µs @ 50 MHz |
-| 输出 | 8 颗 WS2812: 仅点亮 LED[class_id], 颜色按类别区分 |
+| 输出 | 2 颗板载 SK6805 RGB LED (协议兼容 WS2812) + 2 颗普通 LED (二进制 class_id) |
 | 量化误差 | 浮点 99.31% → int8 99.31% → 硬件等价 99.25% (50 个测试样本 RTL 与 Python bit-true 完全一致) |
 
 ## 类别定义
 
-| Class | 含义 | LED 颜色 |
-|---|---|---|
-| 0 | BTN0 短按 | 暗绿 |
-| 1 | BTN1 短按 | 暗红 |
-| 2 | BTN0 长按 (>500 ms) | 黄 |
-| 3 | BTN0 双击 | 蓝 |
+| Class | 含义 | RGB1 | RGB2 | 普通 LED1/2 |
+|---|---|---|---|---|
+| 0 | USER1 短按 | 绿 | 灭 | 0 / 0 |
+| 1 | USER2 短按 | 灭 | 红 | 1 / 0 |
+| 2 | USER1 长按 (>500 ms) | 黄 | 黄 | 0 / 1 |
+| 3 | USER1 双击 | 蓝 | 蓝 | 1 / 1 |
 
 ## 一键复现流程
 
@@ -68,16 +68,16 @@ vivado -mode batch -source build.tcl
 ## 在你机器上还需要做的事
 
 1. 用 Vivado 打开 `vivado/build.tcl`, 按你实际的 Vivado 版本和 part number 跑一遍.
-   板子是 XC7S15-FTGB196 (1 速度等级); 如果不同请改 `PART`.
-2. **打开 `Board/Spartan Edge Accelerator Board v1.0.pdf`**, 把 `vivado/constraints.xdc`
-   里所有标 TODO verify 的引脚 (clk_50m / btn0 / btn1 / ws2812_din / led_status[3:0])
-   与原理图核对一遍, 不一致时修正.
+   板子是 XC7S15-1FTGB196C; 如果不同请改 `PART`.
+2. 引脚已基于 `Board/Spartan Edge Accelerator Board v1.0.pdf` (用 pdfplumber 坐标解析)
+   和 Seeed 官方 `Pillar1989/Demo_project/spi2gpio.xdc` 双重核对:
+   `clk_50m=H4 / btn0(USER1)=C3 / btn1(USER2)=M4 / ws2812_din=N11 / led_status[0]=J1(FPGA_LED1) / led_status[1]=A13(FPGA_LED2)`.
 3. 把 `vivado/build/spartan_edge_mlp.bit` 拷贝到 SD 卡, 让你已有的 ESP32 加载器
    通过 Slave Serial 烧录到 FPGA. 配置成功后:
-   - 按 BTN0 短按一次 → LED0 亮暗绿
-   - 按 BTN1 短按一次 → LED1 亮暗红
-   - 长按 BTN0 ≥ 0.5s → LED2 亮黄
-   - 快速双击 BTN0 → LED3 亮蓝
+   - 短按 USER1 → RGB1 绿, 普通 LED 全灭
+   - 短按 USER2 → RGB2 红, FPGA_LED1 亮
+   - 长按 USER1 ≥ 0.5s → RGB1+RGB2 黄, FPGA_LED2 亮
+   - 双击 USER1 → RGB1+RGB2 蓝, FPGA_LED1+FPGA_LED2 都亮
 
 ## 安全自检
 
