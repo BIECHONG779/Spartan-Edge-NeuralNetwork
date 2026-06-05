@@ -16,6 +16,7 @@ vivado/*.jou
 vivado/*.log
 vivado/.Xil/
 vivado/build/
+!vivado/build/*.bit
 vivado/*.cache/
 vivado/*.hw/
 vivado/*.ip_user_files/
