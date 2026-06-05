@@ -66,7 +66,7 @@ vivado -mode batch -source build.tcl
 # 产物: build/spartan_edge_mlp.bit
 ```
 
-## 在你机器上还需要做的事
+##还需要做的事
 
 1. 用 Vivado 打开 `vivado/build.tcl`, 按你实际的 Vivado 版本和 part number 跑一遍.
    板子是 XC7S15-1FTGB196C; 如果不同请改 `PART`.
