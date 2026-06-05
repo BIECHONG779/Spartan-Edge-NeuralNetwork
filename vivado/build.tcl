@@ -9,9 +9,12 @@
 
 set PART        "xc7s15ftgb196-1"
 set TOP         "top"
-set RTL_DIR     "../rtl"
-set MEM_DIR     "../rtl/mem"
-set BUILD_DIR   "./build"
+# 基于脚本所在目录计算路径，避免 CWD 不同导致的路径错误
+set SCRIPT_DIR  [file dirname [info script]]
+# 用绝对路径替代原来的相对路径
+set RTL_DIR     [file normalize ${SCRIPT_DIR}/../rtl]
+set MEM_DIR     [file normalize ${SCRIPT_DIR}/../rtl/mem]
+set BUILD_DIR   [file normalize ${SCRIPT_DIR}/./build]
 
 file mkdir $BUILD_DIR
 
@@ -19,8 +22,10 @@ create_project -in_memory -part $PART
 
 # RTL 源
 add_files [glob ${RTL_DIR}/*.v]
-# 让 $readmemh 能找到权重 (相对路径基于 Vivado 启动 cwd, 这里我们用绝对路径)
-set_property file_type {Verilog Header} [get_files ${RTL_DIR}/mem/params.vh]
+
+# Verilog Header (params.vh) — 先加入工程再设属性
+add_files ${MEM_DIR}/params.vh
+set_property file_type {Verilog Header} [get_files ${MEM_DIR}/params.vh]
 
 # 把 .mem 文件加入工程, 综合时 $readmemh 会从同目录找到
 add_files [glob ${MEM_DIR}/*.mem]
