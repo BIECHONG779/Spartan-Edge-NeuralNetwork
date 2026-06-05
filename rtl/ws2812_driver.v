@@ -1,16 +1,16 @@
-// ws2812_driver.v — 8 路菊花链 WS2812(B) 单线驱动
+// ws2812_driver.v — N 路菊花链 WS2812(B) / SK6805 单线驱动
 // 协议 (典型 800 kHz, 容差 ±150 ns):
 //   '0' bit: T0H = 0.4 us H, T0L = 0.85 us L
 //   '1' bit: T1H = 0.8 us H, T1L = 0.45 us L
 //   reset  : >= 50 us 低电平
 // 数据顺序: G7..G0, R7..R0, B7..B0, 第一颗 LED 数据先发, 然后菊花链转发.
 //
-// 输入: 8 个 24-bit GRB 值, 加载到 frame_buf 后由 send 触发发送.
+// 输入: N_LEDS 个 24-bit GRB 值, 加载到 frame_buf 后由 send 触发发送.
 // 安全自检: 输出 1 根 GPIO, 时序由内部计数器固定, 不接受外部数据通道.
 `timescale 1ns/1ps
 module ws2812_driver #(
-    parameter integer CLK_HZ   = 50_000_000,
-    parameter integer N_LEDS   = 8
+    parameter integer CLK_HZ   = 100_000_000,
+    parameter integer N_LEDS   = 2
 )(
     input  wire        clk,
     input  wire        rst_n,
@@ -19,12 +19,12 @@ module ws2812_driver #(
     output reg         data_out,
     output reg         busy
 );
-    // 时序参数 (cycles)
-    localparam integer T0H = (CLK_HZ * 400)  / 1_000_000_000;  // 20 cycles @ 50MHz
-    localparam integer T0L = (CLK_HZ * 850)  / 1_000_000_000;  // 42
-    localparam integer T1H = (CLK_HZ * 800)  / 1_000_000_000;  // 40
-    localparam integer T1L = (CLK_HZ * 450)  / 1_000_000_000;  // 22
-    localparam integer TRS = (CLK_HZ * 60)   / 1_000_000;      // 3000 cycles = 60us
+    // 时序参数 (cycles), 100 MHz 下分别为 40 / 85 / 80 / 45 / 6000
+    localparam integer T0H = (CLK_HZ * 400)  / 1_000_000_000;
+    localparam integer T0L = (CLK_HZ * 850)  / 1_000_000_000;
+    localparam integer T1H = (CLK_HZ * 800)  / 1_000_000_000;
+    localparam integer T1L = (CLK_HZ * 450)  / 1_000_000_000;
+    localparam integer TRS = (CLK_HZ * 60)   / 1_000_000;
 
     localparam integer TOTAL_BITS = 24 * N_LEDS;
     localparam integer LOG_BITS   = $clog2(TOTAL_BITS + 1);

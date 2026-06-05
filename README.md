@@ -31,10 +31,11 @@
 
 | 模块 | 复杂度 |
 |---|---|
+| 时钟 | 板载 100 MHz 有源晶振 (型号 O3225100MEDA4SC, 接 H4) |
 | 输入 | USER1 / USER2 物理按键 (低有效, 内部上拉, RTL 反相后采样), 50 Hz x 64 帧 = 128 bit |
 | 网络 | MLP: 128 → 16 (ReLU) → 4, int8 对称量化, 共 ~2 KB 权重 (BRAM) |
-| 推理 | 单 DSP 串行 MAC, 状态机控制, 一次推理 ~2200 cycle ≈ 44 µs @ 50 MHz |
-| 输出 | 2 颗板载 SK6805 RGB LED (协议兼容 WS2812) + 2 颗普通 LED (二进制 class_id) |
+| 推理 | 单 DSP 串行 MAC, 状态机控制, 一次推理 ~2200 cycle ≈ 22 µs @ 100 MHz |
+| 输出 | 2 颗板载 SK6805 RGB LED (协议兼容 WS2812, 菊花链 N11) + 2 颗普通 LED (二进制 class_id) |
 | 量化误差 | 浮点 99.31% → int8 99.31% → 硬件等价 99.25% (50 个测试样本 RTL 与 Python bit-true 完全一致) |
 
 ## 类别定义
@@ -69,9 +70,8 @@ vivado -mode batch -source build.tcl
 
 1. 用 Vivado 打开 `vivado/build.tcl`, 按你实际的 Vivado 版本和 part number 跑一遍.
    板子是 XC7S15-1FTGB196C; 如果不同请改 `PART`.
-2. 引脚已基于 `Board/Spartan Edge Accelerator Board v1.0.pdf` (用 pdfplumber 坐标解析)
-   和 Seeed 官方 `Pillar1989/Demo_project/spi2gpio.xdc` 双重核对:
-   `clk_50m=H4 / btn0(USER1)=C3 / btn1(USER2)=M4 / ws2812_din=N11 / led_status[0]=J1(FPGA_LED1) / led_status[1]=A13(FPGA_LED2)`.
+2. 引脚已基于 `Board/Spartan Edge Accelerator Board v1.0.pdf` 第 1/3 页原理图逐一核对:
+   `sysclk=H4 (100 MHz) / btn0(USER1)=C3 (FPGA_IO10) / btn1(USER2)=M4 (FPGA_IO11) / ws2812_din=N11 (FPGA_RGB) / led_status[0]=J1(FPGA_LED1) / led_status[1]=A13(FPGA_LED2)`.
 3. 把 `vivado/build/spartan_edge_mlp.bit` 拷贝到 SD 卡, 让你已有的 ESP32 加载器
    通过 Slave Serial 烧录到 FPGA. 配置成功后:
    - 短按 USER1 → RGB1 绿, 普通 LED 全灭

@@ -10,8 +10,9 @@ module tb_mlp;
     wire        done;
     wire [1:0]  class_id;
 
-    // 50 MHz
-    always #10 clk = ~clk;
+    // 100 MHz (周期 10 ns), 与板载实际时钟一致;
+    // 不过本 testbench 只验证 mlp_inference 的逻辑等价, 与频率无关.
+    always #5 clk = ~clk;
 
     mlp_inference dut (
         .clk(clk), .rst_n(rst_n),

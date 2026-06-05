@@ -1,8 +1,9 @@
-// clk_div.v — 50 MHz 分频出 50 Hz tick (1 cycle 高脉冲)
+// clk_div.v — 系统时钟分频出 50 Hz tick (1 cycle 高脉冲)
+// 板上有源晶振 100 MHz, 故默认 CLK_HZ=100_000_000.
 // 安全自检: 纯本地计数, 无外部输入, 不存在注入面.
 `timescale 1ns/1ps
 module clk_div #(
-    parameter integer CLK_HZ  = 50_000_000,
+    parameter integer CLK_HZ  = 100_000_000,
     parameter integer TICK_HZ = 50
 )(
     input  wire clk,

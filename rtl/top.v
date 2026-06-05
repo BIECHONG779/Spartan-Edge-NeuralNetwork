@@ -1,6 +1,6 @@
-// top.v — 顶层: 50MHz 时钟, 2 按键, 8 颗 WS2812
+// top.v — 顶层: 100 MHz 时钟 (板载有源晶振), 2 颗用户按键, 2 颗 SK6805 RGB + 2 颗普通 LED
 // 数据流: 按键 → debounce → button_capture → mlp_inference → LED 着色 → ws2812_driver
-// 复位: 板上无 RST 按键时, 用上电延时复位 (24-bit 计数器达到目标后 rst_n=1)
+// 复位: 板上 FPGA_RST 不接顶层, 用上电延时复位 (24-bit 计数器达到目标后 rst_n=1)
 //
 // 安全自检:
 //   - 所有外部输入仅 2 根按键 GPIO, 已去抖, 无注入路径;
@@ -10,16 +10,18 @@
 `include "mem/params.vh"
 
 module top (
-    input  wire clk_50m,
-    input  wire btn0,
-    input  wire btn1,
-    output wire ws2812_din,        // SK6805 链 DIN (板上 2 颗 RGB LED, 兼容 WS2812 协议)
-    output wire [1:0] led_status   // 板载 2 颗普通 LED (FPGA_LED1/2), 二进制显示 class_id
+    input  wire sysclk,            // 板载 100 MHz 有源晶振 (H4)
+    input  wire btn0,              // USER1 按键 (C3, 低有效, XDC PULLUP)
+    input  wire btn1,              // USER2 按键 (M4, 低有效, XDC PULLUP)
+    output wire ws2812_din,        // SK6805 链 DIN (N11), 板上 2 颗 RGB LED
+    output wire [1:0] led_status   // 板载 2 颗普通 LED (J1=FPGA_LED1, A13=FPGA_LED2)
 );
+    localparam integer CLK_HZ = 100_000_000;
+
     // ---------- 上电复位 ----------
     reg [23:0] por_cnt = 0;
     reg        rst_n   = 1'b0;
-    always @(posedge clk_50m) begin
+    always @(posedge sysclk) begin
         if (por_cnt != 24'hFF_FFFF) begin
             por_cnt <= por_cnt + 1'b1;
             rst_n   <= 1'b0;
@@ -30,8 +32,8 @@ module top (
 
     // ---------- 50 Hz tick ----------
     wire tick;
-    clk_div #(.CLK_HZ(50_000_000), .TICK_HZ(50)) u_tick (
-        .clk(clk_50m), .rst_n(rst_n), .tick(tick)
+    clk_div #(.CLK_HZ(CLK_HZ), .TICK_HZ(50)) u_tick (
+        .clk(sysclk), .rst_n(rst_n), .tick(tick)
     );
 
     // ---------- 去抖 ----------
@@ -39,16 +41,16 @@ module top (
     wire btn0_act = ~btn0;
     wire btn1_act = ~btn1;
     wire btn0_db, btn1_db;
-    debounce u_db0 (.clk(clk_50m), .rst_n(rst_n), .tick(tick),
+    debounce u_db0 (.clk(sysclk), .rst_n(rst_n), .tick(tick),
                     .btn_raw(btn0_act), .btn_stable(btn0_db));
-    debounce u_db1 (.clk(clk_50m), .rst_n(rst_n), .tick(tick),
+    debounce u_db1 (.clk(sysclk), .rst_n(rst_n), .tick(tick),
                     .btn_raw(btn1_act), .btn_stable(btn1_db));
 
     // ---------- 采样 ----------
     wire [127:0] vec;
     wire         vec_valid;
     button_capture #(.N_FRAMES(64)) u_cap (
-        .clk(clk_50m), .rst_n(rst_n), .tick(tick),
+        .clk(sysclk), .rst_n(rst_n), .tick(tick),
         .btn0(btn0_db), .btn1(btn1_db),
         .vec(vec), .vec_valid(vec_valid)
     );
@@ -57,7 +59,7 @@ module top (
     wire [1:0] class_id;
     wire       infer_done;
     mlp_inference u_mlp (
-        .clk(clk_50m), .rst_n(rst_n),
+        .clk(sysclk), .rst_n(rst_n),
         .start(vec_valid),
         .x_vec(vec),
         .done(infer_done),
@@ -71,10 +73,10 @@ module top (
     function [23:0] led1_color;
         input [1:0] cls;
         case (cls)
-            2'd0: led1_color = {8'h20, 8'h00, 8'h00};   // 绿 (BTN0 短按)
-            2'd1: led1_color = {8'h00, 8'h00, 8'h00};   // 灭 (BTN1 短按)
-            2'd2: led1_color = {8'h10, 8'h10, 8'h00};   // 黄 (BTN0 长按)
-            2'd3: led1_color = {8'h00, 8'h00, 8'h20};   // 蓝 (BTN0 双击)
+            2'd0: led1_color = {8'h20, 8'h00, 8'h00};   // 绿 (USER1 短按)
+            2'd1: led1_color = {8'h00, 8'h00, 8'h00};   // 灭 (USER2 短按)
+            2'd2: led1_color = {8'h10, 8'h10, 8'h00};   // 黄 (USER1 长按)
+            2'd3: led1_color = {8'h00, 8'h00, 8'h20};   // 蓝 (USER1 双击)
         endcase
     endfunction
     function [23:0] led2_color;
@@ -92,7 +94,7 @@ module top (
     reg         ws_start;
     wire        ws_busy;
 
-    always @(posedge clk_50m or negedge rst_n) begin
+    always @(posedge sysclk or negedge rst_n) begin
         if (!rst_n) begin
             last_class <= 2'd0;
             grb_pack   <= 48'd0;
@@ -107,8 +109,8 @@ module top (
         end
     end
 
-    ws2812_driver #(.CLK_HZ(50_000_000), .N_LEDS(2)) u_ws (
-        .clk(clk_50m), .rst_n(rst_n),
+    ws2812_driver #(.CLK_HZ(CLK_HZ), .N_LEDS(2)) u_ws (
+        .clk(sysclk), .rst_n(rst_n),
         .start(ws_start), .grb_pack(grb_pack),
         .data_out(ws2812_din), .busy(ws_busy)
     );
