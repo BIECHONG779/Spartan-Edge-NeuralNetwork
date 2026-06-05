@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyTorch artifacts
+*.pt
+*.pth
+
+# Vivado outputs
+vivado/*.jou
+vivado/*.log
+vivado/.Xil/
+vivado/build/
+vivado/*.cache/
+vivado/*.hw/
+vivado/*.ip_user_files/
+vivado/*.runs/
+vivado/*.sim/
+vivado/*.srcs/
+
+# Simulation outputs
+sim/work/
+sim/*.vcd
+sim/*.wdb
+*.jou
+*.log
