@@ -20,11 +20,13 @@ module ws2812_driver #(
     output reg         busy
 );
     // 时序参数 (cycles), 100 MHz 下分别为 40 / 85 / 80 / 45 / 6000
-    localparam integer T0H = (CLK_HZ * 400)  / 1_000_000_000;
-    localparam integer T0L = (CLK_HZ * 850)  / 1_000_000_000;
-    localparam integer T1H = (CLK_HZ * 800)  / 1_000_000_000;
-    localparam integer T1L = (CLK_HZ * 450)  / 1_000_000_000;
-    localparam integer TRS = (CLK_HZ * 60)   / 1_000_000;
+    // 原式 CLK_HZ * dur_ns / 1e9 在 CLK_HZ=100M 时中间值超 32-bit.
+    // 改写为 (CLK_HZ/1e5) * dur_ns / 1e4, 避免溢出且无精度损失.
+    localparam integer T0H = (CLK_HZ / 100_000) * 400  / 10_000;
+    localparam integer T0L = (CLK_HZ / 100_000) * 850  / 10_000;
+    localparam integer T1H = (CLK_HZ / 100_000) * 800  / 10_000;
+    localparam integer T1L = (CLK_HZ / 100_000) * 450  / 10_000;
+    localparam integer TRS = (CLK_HZ / 100_000) * 60_000 / 10_000;
 
     localparam integer TOTAL_BITS = 24 * N_LEDS;
     localparam integer LOG_BITS   = $clog2(TOTAL_BITS + 1);

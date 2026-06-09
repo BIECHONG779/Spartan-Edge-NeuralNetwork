@@ -34,18 +34,19 @@
 | 时钟 | 板载 100 MHz 有源晶振 (型号 O3225100MEDA4SC, 接 H4) |
 | 输入 | USER1 / USER2 物理按键 (低有效, 内部上拉, RTL 反相后采样), 50 Hz x 64 帧 = 128 bit |
 | 网络 | MLP: 128 → 16 (ReLU) → 4, int8 对称量化, 共 ~2 KB 权重 (BRAM) |
-| 推理 | 单 DSP 串行 MAC, 状态机控制, 一次推理 ~2200 cycle ≈ 22 µs @ 100 MHz |
+| 推理 | 单 DSP 串行 MAC, 内部 CE ÷2 (有效 50 MHz), 一次推理 ~2200 cycle ≈ 44 µs @ 100 MHz |
 | 输出 | 2 颗板载 SK6805 RGB LED (协议兼容 WS2812, 菊花链 N11) + 2 颗普通 LED (二进制 class_id) |
-| 量化误差 | 浮点 99.31% → int8 99.31% → 硬件等价 99.25% (50 个测试样本 RTL 与 Python bit-true 完全一致) |
+| 时序 | Spartan-7 -1 MAC 关键路径 ~12.2 ns, 不能满足 100 MHz; 用 CE ÷2 + multi-cycle 约束解决 |
+| 量化误差 | 浮点 100% → int8 100% → 硬件等价 100% (50 个测试样本 RTL 与 Python bit-true 完全一致) |
 
 ## 类别定义
 
 | Class | 含义 | RGB1 | RGB2 | 普通 LED1/2 |
 |---|---|---|---|---|
-| 0 | USER1 短按 | 绿 | 灭 | 0 / 0 |
-| 1 | USER2 短按 | 灭 | 红 | 1 / 0 |
-| 2 | USER1 长按 (>500 ms) | 黄 | 黄 | 0 / 1 |
-| 3 | USER1 双击 | 蓝 | 蓝 | 1 / 1 |
+| 0 | USER1 长按 (>500 ms) | 黄 | 黄 | 0 / 0 |
+| 1 | USER1 双击 | 蓝 | 蓝 | 0 / 1 |
+| 2 | USER2 长按 (>500 ms) | 品红 | 品红 | 1 / 0 |
+| 3 | USER2 双击 | 青 | 青 | 1 / 1 |
 
 ## 一键复现流程
 
@@ -74,10 +75,10 @@ vivado -mode batch -source build.tcl
    `sysclk=H4 (100 MHz) / btn0(USER1)=C3 (FPGA_IO10) / btn1(USER2)=M4 (FPGA_IO11) / ws2812_din=N11 (FPGA_RGB) / led_status[0]=J1(FPGA_LED1) / led_status[1]=A13(FPGA_LED2)`.
 3. 把 `vivado/build/spartan_edge_mlp.bit` 拷贝到 SD 卡, 让你已有的 ESP32 加载器
    通过 Slave Serial 烧录到 FPGA. 配置成功后:
-   - 短按 USER1 → RGB1 绿, 普通 LED 全灭
-   - 短按 USER2 → RGB2 红, FPGA_LED1 亮
-   - 长按 USER1 ≥ 0.5s → RGB1+RGB2 黄, FPGA_LED2 亮
-   - 双击 USER1 → RGB1+RGB2 蓝, FPGA_LED1+FPGA_LED2 都亮
+   - 长按 USER1 → RGB1+RGB2 黄, LED1/2 灭
+   - 双击 USER1 → RGB1+RGB2 蓝, LED2 亮
+   - 长按 USER2 → RGB1+RGB2 品红, LED1 亮
+   - 双击 USER2 → RGB1+RGB2 青, LED1+LED2 都亮
 
 ## 安全自检
 

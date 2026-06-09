@@ -30,3 +30,4 @@ sim/*.vcd
 sim/*.wdb
 *.jou
 *.log
+vivado/usage_statistics_webtalk*

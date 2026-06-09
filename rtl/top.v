@@ -56,7 +56,7 @@ module top (
     );
 
     // ---------- 推理 ----------
-    wire [1:0] class_id;
+    wire [1:0] class_id;          // 2 bit for 4 classes
     wire       infer_done;
     mlp_inference u_mlp (
         .clk(sysclk), .rst_n(rst_n),
@@ -67,25 +67,23 @@ module top (
     );
 
     // ---------- 类别 → 2 颗 RGB LED 颜色 ----------
-    // 板上只有 2 颗 SK6805 RGB LED, 用 (LED1, LED2) 颜色组合区分 4 类.
-    // 颜色字段 24 bit = {G[7:0], R[7:0], B[7:0]} (SK6805/WS2812 协议).
-    // 选用低亮度 0x20 避免直视刺眼.
+    // 4 类手势: USER1/2 长按 + 双击. 颜色字段 24 bit = {G[7:0], R[7:0], B[7:0]}.
     function [23:0] led1_color;
         input [1:0] cls;
         case (cls)
-            2'd0: led1_color = {8'h20, 8'h00, 8'h00};   // 绿 (USER1 短按)
-            2'd1: led1_color = {8'h00, 8'h00, 8'h00};   // 灭 (USER2 短按)
-            2'd2: led1_color = {8'h10, 8'h10, 8'h00};   // 黄 (USER1 长按)
-            2'd3: led1_color = {8'h00, 8'h00, 8'h20};   // 蓝 (USER1 双击)
+            2'd0: led1_color = {8'h10, 8'h10, 8'h00};   // 黄   (USER1 长按)
+            2'd1: led1_color = {8'h00, 8'h00, 8'h20};   // 蓝   (USER1 双击)
+            2'd2: led1_color = {8'h00, 8'h20, 8'h20};   // 品红 (USER2 长按)
+            2'd3: led1_color = {8'h20, 8'h00, 8'h20};   // 青   (USER2 双击)
         endcase
     endfunction
     function [23:0] led2_color;
         input [1:0] cls;
         case (cls)
-            2'd0: led2_color = {8'h00, 8'h00, 8'h00};   // 灭
-            2'd1: led2_color = {8'h00, 8'h20, 8'h00};   // 红
-            2'd2: led2_color = {8'h10, 8'h10, 8'h00};   // 黄
-            2'd3: led2_color = {8'h00, 8'h00, 8'h20};   // 蓝
+            2'd0: led2_color = {8'h10, 8'h10, 8'h00};   // 黄   (USER1 长按)
+            2'd1: led2_color = {8'h00, 8'h00, 8'h20};   // 蓝   (USER1 双击)
+            2'd2: led2_color = {8'h00, 8'h20, 8'h20};   // 品红 (USER2 长按)
+            2'd3: led2_color = {8'h20, 8'h00, 8'h20};   // 青   (USER2 双击)
         endcase
     endfunction
 
@@ -115,6 +113,17 @@ module top (
         .data_out(ws2812_din), .busy(ws_busy)
     );
 
-    assign led_status = last_class;
+    // ---------- 上电闪烁 ----------
+    // 配置完成后两盏普通 LED 同时亮 ~0.67 s, 提供视觉确认 (FPGA alive).
+    reg [25:0] por_blink_cnt;
+    wire por_blink;
+    always @(posedge sysclk or negedge rst_n) begin
+        if (!rst_n) por_blink_cnt <= 0;
+        else if (por_blink_cnt < 26'd67_000_000)
+            por_blink_cnt <= por_blink_cnt + 1'b1;
+    end
+    assign por_blink = (por_blink_cnt < 26'd67_000_000);
+
+    assign led_status = por_blink ? 2'b11 : class_id[1:0];
 
 endmodule

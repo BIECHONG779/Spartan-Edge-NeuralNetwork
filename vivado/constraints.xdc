@@ -39,6 +39,13 @@ set_property PACKAGE_PIN J1  [get_ports {led_status[0]}]   ;# FPGA_LED1 (Green)
 set_property PACKAGE_PIN A13 [get_ports {led_status[1]}]   ;# FPGA_LED2 (Red)
 set_property IOSTANDARD LVCMOS33 [get_ports {led_status[*]}]
 
+## ---- 多周期路径: u_mlp 内部用 2 分频 CE, 路径有 2 个时钟周期 ----
+## Spartan-7 -1 的 MAC 关键路径 ~12.2 ns, 无法在 100 MHz (10 ns) 下单周期闭合.
+## mlp_inference 内部 ce=~ce 翻转, 状态机每 2 cycle 走一步 → 有效 50 MHz.
+## 下面告知 STA: u_mlp 内部 reg→reg 路径 setup 按 2 周期 (20 ns) 检查.
+set_multicycle_path -setup 2 -from [get_cells -hier -filter "NAME =~ *u_mlp* && IS_SEQUENTIAL"] -to [get_cells -hier -filter "NAME =~ *u_mlp* && IS_SEQUENTIAL"]
+set_multicycle_path -hold  1 -from [get_cells -hier -filter "NAME =~ *u_mlp* && IS_SEQUENTIAL"] -to [get_cells -hier -filter "NAME =~ *u_mlp* && IS_SEQUENTIAL"]
+
 ## ---- bitstream 设置 (ESP32 Slave Serial 加载需要) ----
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 1 [current_design]

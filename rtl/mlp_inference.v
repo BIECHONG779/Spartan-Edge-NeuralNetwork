@@ -1,18 +1,20 @@
-// mlp_inference.v — 串行 MAC 推理引擎
+// mlp_inference.v — 串行 MAC 推理引擎 (带流水线 CE)
 // 数据通路 (与 train_and_export.py infer_hw 严格一致):
 //   FC1: acc1[j] = sum_{k=0..127}( x_q[k] * W1q[k,j] ) + b1q[j]
 //        x_bit[k]=1 → x_q=127 ; x_bit[k]=0 → x_q=0  (硬件中 x_q 只取 0 或 127)
 //   ReLU + 重量化: hq[j] = clip( (max(0,acc1) * REQ_MUL) >>> REQ_SHIFT , 0, 127 )
-//   FC2: acc2[c] = sum_{j=0..15}( hq[j] * W2q[j,c] ) + b2q[c]
-//   argmax: 在 4 个 acc2 中找最大 idx
+//   FC2: acc2[c] = sum_{j=0..H-1}( hq[j] * W2q[j,c] ) + b2q[c]
+//   argmax: 在 C 个 acc2 中找最大 idx (C = N_CLASSES, default 4)
 //
 // 接口:
 //   start    : 高一拍启动
 //   x_vec    : 128 bit 输入
 //   done     : 完成时高一拍
-//   class_id : 2 bit 分类结果
+//   class_id : 2 bit 分类结果 (0-3 for 4 classes)
 //
-// 资源: 1 个有符号 32-bit 累加器 + 共享 8x8 乘法器 (DSP), BRAM 存权重.
+// 时序: 内部用 2 分频 CE (有效 50 MHz) 解决 Spartan-7 -1 在 100 MHz
+//   下的 setup 违例 (~12.2 ns 关键路径对 10 ns 约束); 多周期约束见
+//   vivado/constraints.xdc.
 //
 // 安全自检:
 //   - 所有地址、计数器位宽都 >= 实际范围, 无溢出风险;
@@ -27,7 +29,7 @@ module mlp_inference (
     input  wire                       start,
     input  wire [`INPUT_DIM-1:0]      x_vec,     // MSB = 第一个特征
     output reg                        done,
-    output reg  [1:0]                 class_id
+    output reg  [1:0]                 class_id     // 2 bit for 4 classes
 );
     localparam integer IN  = `INPUT_DIM;   // 128
     localparam integer H   = `HIDDEN;      // 16
@@ -36,12 +38,31 @@ module mlp_inference (
     localparam integer LOG_H  = $clog2(H);    // 4
     localparam integer LOG_C  = $clog2(C);    // 2
 
+    // ---------- 内部 CE: clk ÷ 2 ----------
+    // Spartan-7 -1 的 MAC 关键路径 ~12.2 ns 无法满足 100 MHz (10 ns).
+    // 用 1-bit 翻转 CE 使状态机每 2 cycle 走一步 → 有效 50 MHz (20 ns).
+    reg ce;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) ce <= 1'b0;
+        else        ce <= ~ce;
+    end
+
+    // ---------- start 展宽 ----------
+    // vec_valid (来自 button_capture) 是 1 cycle 脉冲, 可能落在 ce=0 的周期.
+    // 用 SR 锁存器展宽到下一个 ce=1, 保证不漏.
+    reg start_req;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) start_req <= 1'b0;
+        else if (start) start_req <= 1'b1;
+        else if (ce && state == S_IDLE) start_req <= 1'b0;
+    end
+
     // ---------- 权重 BRAM ----------
     // W1: 128*16 = 2048 entries, 8-bit signed
     (* ram_style = "block" *) reg signed [7:0] w1_mem [0:IN*H-1];
     (* ram_style = "block" *) reg signed [7:0] w2_mem [0:H*C-1];
-    reg signed [31:0] b1_mem [0:H-1];
-    reg signed [31:0] b2_mem [0:C-1];
+    (* ram_style = "block" *) reg signed [31:0] b1_mem [0:H-1];
+    (* ram_style = "block" *) reg signed [31:0] b2_mem [0:C-1];
 
     initial begin
         $readmemh("mem/w1.mem", w1_mem);
@@ -108,11 +129,12 @@ module mlp_inference (
             best_idx <= 0; best_val <= 0;
             for (i = 0; i < H; i = i + 1) hq[i] <= 0;
             for (i = 0; i < C; i = i + 1) acc2_arr[i] <= 0;
-        end else begin
+        end else if (ce) begin
+            // ---- 仅 ce=1 时推进状态机 (有效 50 MHz) ----
             done <= 1'b0;
             case (state)
             S_IDLE: begin
-                if (start) begin
+                if (start_req) begin
                     j     <= 0;
                     k     <= 0;
                     acc   <= b1_mem[0];   // 预加 bias
